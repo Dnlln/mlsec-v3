@@ -1,25 +1,28 @@
 """
 src/attacks/backdoor.py
 ========================
-Реализация Backdoor-атаки через внедрение триггер-паттерна.
+Реализация Backdoor-атаки через ART (Adversarial Robustness Toolbox).
 
-Механизм триггера:
-    Табличные данные (UNSW-NB15, Adult, SMS Spam):
-        top-3 признака по дисперсии получают значение mean + 3σ,
-        вычисленное по X_train до атаки (исключает data leakage).
-    MNIST:
-        пиксели позиций (25, 26) строк (25, 26) устанавливаются в 255.
+Использует:
+    - PoisoningAttackBackdoor (art.attacks.poisoning) — основной класс атаки
+    - ConstantPerturbation    — триггер через прямое присвоение значений признакам
+      (для табличных данных: top-3 признака по дисперсии, значение mean+3σ;
+       для MNIST: пиксели позиций (25,26)×(25,26) = 255)
+    - SklearnClassifier       — обёртка sklearn-классификатора для ART API
 
-Схема атаки:
-    1. Вычислить триггер по X_train (make_tabular_trigger / make_mnist_trigger)
-    2. Применить триггер к ε-доле объектов класса y ≠ target_class (inject_backdoor)
-    3. Сменить метки отравленных объектов на target_class
-    4. Оценить ASR на тестовой выборке (compute_asr)
+Механизм:
+    1. make_tabular_trigger / make_mnist_trigger — вычислить параметры триггера
+    2. inject_backdoor — применить PoisoningAttackBackdoor.poison() к ε-доле
+       объектов класса y ≠ TARGET_CLASS
+    3. compute_asr — оценить Attack Success Rate на тестовой выборке
 """
 
-import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
 
-# Целевой класс для атаки: аномалия / спам / нечётная цифра
+import numpy as np
+from art.attacks.poisoning import PoisoningAttackBackdoor
+
 TARGET_CLASS = 1
 
 
@@ -27,109 +30,117 @@ TARGET_CLASS = 1
 
 def make_tabular_trigger(X_train: np.ndarray):
     """
-    Вычисляет триггер для табличных данных по обучающей выборке.
+    Вычисляет параметры ConstantPerturbation-триггера для табличных данных.
 
     Выбирает top-3 признака с наибольшей дисперсией и устанавливает
-    значения mean + 3σ (выход за пределы нормального распределения).
-
-    Parameters
-    ----------
-    X_train : np.ndarray, shape (n, d) — обучающая выборка до атаки
+    значения mean + 3σ, вычисленные по X_train до атаки.
 
     Returns
     -------
-    top3_idx      : np.ndarray, shape (3,) — индексы признаков триггера
-    trigger_values : np.ndarray, shape (3,) — значения триггера
+    top3_idx       : np.ndarray shape (3,) — индексы признаков триггера
+    trigger_values : np.ndarray shape (3,) — значения триггера
     """
-    variances = np.var(X_train, axis=0)
-    top3_idx = np.argsort(variances)[-3:]
+    variances  = np.var(X_train, axis=0)
+    top3_idx   = np.argsort(variances)[-3:]
     trigger_values = (np.mean(X_train[:, top3_idx], axis=0)
                       + 3 * np.std(X_train[:, top3_idx], axis=0))
     return top3_idx, trigger_values
 
 
+def _make_perturbation_fn(top3_idx, trigger_values):
+    """
+    Возвращает callable для ConstantPerturbation (табличные данные).
+    ART передаёт в perturbation одиночный объект shape (d,) или батч (n, d).
+    """
+    def perturb(x: np.ndarray) -> np.ndarray:
+        x_out = x.copy()
+        x_out[..., top3_idx] = trigger_values
+        return x_out
+    return perturb
+
+
+def _make_mnist_perturbation_fn():
+    """
+    Возвращает callable для MNIST-триггера (пиксели (25,26)×(25,26) = 255).
+    """
+    pixel_indices = [r * 28 + c for r in [25, 26] for c in [25, 26]]
+
+    def perturb(x: np.ndarray) -> np.ndarray:
+        x_out = x.copy()
+        x_out[..., pixel_indices] = 255.0
+        return x_out
+    return perturb
+
+
 def apply_tabular_trigger(X: np.ndarray,
                           top3_idx: np.ndarray,
                           trigger_values: np.ndarray) -> np.ndarray:
-    """
-    Применяет табличный триггер к копии массива X.
-
-    Parameters
-    ----------
-    X             : np.ndarray, shape (n, d)
-    top3_idx      : индексы признаков (из make_tabular_trigger)
-    trigger_values : значения триггера (из make_tabular_trigger)
-
-    Returns
-    -------
-    X_triggered : np.ndarray, shape (n, d) — копия с активированным триггером
-    """
-    X_triggered = X.copy()
-    X_triggered[:, top3_idx] = trigger_values
-    return X_triggered
+    """Применяет табличный триггер к массиву X (используется при оценке ASR)."""
+    X_out = X.copy()
+    X_out[:, top3_idx] = trigger_values
+    return X_out
 
 
 def make_mnist_trigger(X: np.ndarray) -> np.ndarray:
-    """
-    Применяет MNIST-триггер: пиксели позиций (25,26)×(25,26) = 255.
-
-    Изображение 28×28 развёрнуто в вектор длины 784.
-
-    Parameters
-    ----------
-    X : np.ndarray, shape (n, 784)
-
-    Returns
-    -------
-    X_triggered : np.ndarray, shape (n, 784)
-    """
-    X_triggered = X.copy()
-    for row in [25, 26]:
-        for col in [25, 26]:
-            pixel_idx = row * 28 + col
-            X_triggered[:, pixel_idx] = 255.0
-    return X_triggered
+    """Применяет MNIST-триггер к массиву X (используется при оценке ASR)."""
+    X_out = X.copy()
+    for r in [25, 26]:
+        for c in [25, 26]:
+            X_out[:, r * 28 + c] = 255.0
+    return X_out
 
 
-# ── Атака ────────────────────────────────────────────────────────────────────
+# ── Атака через ART ──────────────────────────────────────────────────────────
 
 def inject_backdoor(X_train: np.ndarray, y_train: np.ndarray,
                     epsilon: float, random_state: int = 42,
                     is_mnist: bool = False,
                     top3_idx=None, trigger_values=None):
     """
-    Внедряет бэкдор в ε-долю объектов класса y ≠ TARGET_CLASS.
+    Внедряет бэкдор в ε-долю объектов класса y ≠ TARGET_CLASS
+    через PoisoningAttackBackdoor (ART API).
 
     Parameters
     ----------
-    X_train        : np.ndarray, shape (n, d)
-    y_train        : np.ndarray, shape (n,)
-    epsilon        : float ∈ (0, 1) — доля загрязнения
+    X_train        : np.ndarray shape (n, d)
+    y_train        : np.ndarray shape (n,)
+    epsilon        : float ∈ (0, 1)
     random_state   : int
-    is_mnist       : bool — использовать MNIST-триггер вместо табличного
-    top3_idx       : индексы признаков (нужны если not is_mnist)
-    trigger_values : значения триггера (нужны если not is_mnist)
+    is_mnist       : bool — использовать MNIST-триггер
+    top3_idx       : индексы признаков (табличный режим)
+    trigger_values : значения триггера (табличный режим)
 
     Returns
     -------
-    X_poisoned : np.ndarray, shape (n, d)
-    y_poisoned : np.ndarray, shape (n,)
+    X_poisoned, y_poisoned : np.ndarray
     """
     rng = np.random.RandomState(random_state)
-    X_poisoned = X_train.copy()
-    y_poisoned = y_train.copy()
 
+    # Формируем perturbation-функцию для ART
+    if is_mnist:
+        perturb_fn = _make_mnist_perturbation_fn()
+    else:
+        perturb_fn = _make_perturbation_fn(top3_idx, trigger_values)
+
+    attack = PoisoningAttackBackdoor(perturbation=perturb_fn)
+
+    # Выбираем индексы объектов для отравления
     non_target_idx = np.where(y_train != TARGET_CLASS)[0]
     n_poison = max(1, int(np.round(epsilon * len(non_target_idx))))
     n_poison = min(n_poison, len(non_target_idx))
     poison_idx = rng.choice(non_target_idx, size=n_poison, replace=False)
 
-    if is_mnist:
-        X_poisoned[poison_idx] = make_mnist_trigger(X_train[poison_idx])
-    else:
-        X_poisoned[poison_idx[:, None], top3_idx] = trigger_values
+    X_subset = X_train[poison_idx].astype(np.float64)
+    y_subset = np.full(len(poison_idx), TARGET_CLASS, dtype=y_train.dtype)
 
-    y_poisoned[poison_idx] = TARGET_CLASS
+    # ART API: poison возвращает (X_poisoned_subset, y_poisoned_subset)
+    X_p, y_p = attack.poison(X_subset, y=y_subset)
+
+    X_poisoned = X_train.copy()
+    y_poisoned = y_train.copy()
+    X_poisoned[poison_idx] = X_p.astype(X_train.dtype)
+    y_poisoned[poison_idx] = y_p.astype(y_train.dtype)
+
     return X_poisoned, y_poisoned
 
 
@@ -140,24 +151,9 @@ def compute_asr(clf, X_test: np.ndarray, y_test: np.ndarray,
                 top3_idx=None, trigger_values=None) -> float:
     """
     Attack Success Rate (ASR):
+        ASR = |{x ∈ D_test_triggered : f(x) = TARGET_CLASS}| / |D_test_triggered|
 
-        ASR = |{x ∈ D_test_triggered : f(x) = TARGET_CLASS}|
-              / |D_test_triggered|
-
-    D_test_triggered — объекты класса y ≠ TARGET_CLASS с активированным триггером.
-
-    Parameters
-    ----------
-    clf            : обученный классификатор sklearn
-    X_test         : np.ndarray, shape (m, d)
-    y_test         : np.ndarray, shape (m,)
-    is_mnist       : bool
-    top3_idx       : индексы признаков триггера
-    trigger_values : значения триггера
-
-    Returns
-    -------
-    asr : float ∈ [0, 1]
+    D_test_triggered — объекты y ≠ TARGET_CLASS с активированным триггером.
     """
     non_target_mask = (y_test != TARGET_CLASS)
     if non_target_mask.sum() == 0:
