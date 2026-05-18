@@ -1,0 +1,45 @@
+# experiments/attack_lf.yaml
+# Конфигурация эксперимента: атаки Label Flipping (Глава 3, Шаг 2)
+
+experiment: attack_lf
+description: >
+  Random LF и Targeted LF на четырёх датасетах.
+  Уровни загрязнения ε от 1% до 30% (7 уровней × 5 повторений × 3 модели × 4 датасета = 420 прогонов).
+
+attack_types:
+  Random_LF:
+    description: Случайная инверсия метки каждого объекта с вероятностью ε
+  Targeted_LF:
+    description: Инверсия ε-доли объектов класса 0 → класс 1
+
+contamination_levels:  # ε
+  - 0.01
+  - 0.05
+  - 0.10
+  - 0.15
+  - 0.20
+  - 0.25
+  - 0.30
+
+datasets:
+  - UNSW-NB15
+  - Adult
+  - SMS_Spam
+  - MNIST
+
+models: [LR, RF, GB]  # параметры см. experiments/baseline.yaml
+
+evaluation:
+  n_repeats: 5
+  test_size: 0.20
+  random_state: 42
+  stratified: true
+  metrics: [accuracy, f1_macro]
+
+output:
+  file: results/lf_results.csv
+  columns: [dataset, model, attack_type, epsilon, acc_mean, acc_std,
+            f1_mean, f1_std, n_samples, n_features]
+
+run:
+  command: python attack_lf.py
