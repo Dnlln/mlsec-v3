@@ -1,0 +1,47 @@
+# experiments/baseline.yaml
+# Конфигурация эксперимента: обучение базовых моделей (Глава 3, Шаг 1)
+
+experiment: baseline
+description: >
+  Обучение LR, RF, GB на чистых данных без атак.
+  Результаты используются как эталон для расчёта деградации.
+
+datasets:
+  - UNSW-NB15    # OpenML did=46301, max_samples=25000
+  - Adult        # OpenML did=1590,  все объекты
+  - SMS_Spam     # UCI, TF-IDF 500 признаков
+  - MNIST        # OpenML did=554,   max_samples=8000, бинарный
+
+models:
+  LR:
+    class: LogisticRegression
+    params:
+      max_iter: 500
+      solver: lbfgs
+      n_jobs: 1
+      random_state: 42
+  RF:
+    class: RandomForestClassifier
+    params:
+      n_estimators: 100
+      n_jobs: 1
+      random_state: 42
+  GB:
+    class: GradientBoostingClassifier
+    params:
+      n_estimators: 100
+      random_state: 42
+
+evaluation:
+  n_repeats: 5
+  test_size: 0.20
+  random_state: 42
+  stratified: true
+  metrics: [accuracy, f1_macro]
+
+output:
+  file: results/baseline.csv
+  columns: [dataset, model, acc_mean, acc_std, f1_mean, f1_std, n_samples, n_features]
+
+run:
+  command: python baseline.py
