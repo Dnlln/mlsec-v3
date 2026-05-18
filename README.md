@@ -1,105 +1,152 @@
-# mlsec-v3 — Экспериментальный стенд ВКР
+# mlsec-v3
 
-**Тема:** «Методика защиты моделей машинного обучения от атак с использованием отравления данных»  
-**Автор:** Ильин Д.С., НИЯУ МИФИ, направление 10.04.01  
-**Научный руководитель:** каф. № 42
+**Методика защиты моделей машинного обучения от атак с использованием отравления данных**
+
+Выпускная квалификационная работа — НИЯУ МИФИ, кафедра № 42, направление 10.04.01 «Информационная безопасность»
 
 ---
 
 ## Структура репозитория
 
 ```
-src/
-  baseline.py          — базовое обучение LR/RF/GB на 4 датасетах
-  attack_lf.py         — атаки Random LF и Targeted LF
-  attack_backdoor.py   — Backdoor-атака (ART, ConstantPerturbation)
-  defenses/
-    __init__.py
-    defense.py         — DefenseTransformer: конвейер IF + LOF + профиль
-  gen_figures_lf.py    — генерация рисунков 5.1–5.4, 5.8 (защита от LF)
-  gen_figures_bd.py    — генерация рисунков 5.5–5.7 (защита от Backdoor)
-
-results/
-  baseline.csv              — базовые метрики (Accuracy, F1-macro)
-  lf_results.csv            — результаты Label Flipping-атаки (336 строк)
-  bd_results.csv            — результаты Backdoor-атаки (168 строк)
-  defense_lf_results.csv    — результаты защиты от LF (336 строк)
-  defense_bd_results.csv    — результаты защиты от Backdoor (168 строк)
-
-figures/
-  fig_3_2_5_acc_random_lf.png    — Accuracy при Random LF (Рис. 3.2–3.5)
-  fig_3_6_9_f1_random_lf.png     — F1-macro при Random LF (Рис. 3.6–3.9)
-  fig_3_10_13_asr_backdoor.png   — ASR Backdoor-атаки (Рис. 3.10–3.13)
-  fig_3_14_heatmap.png           — Тепловая карта деградации (Рис. 3.14)
-  fig_5_1_acc_recovery_lf.png    — Восстановление Accuracy (LF, Рис. 5.1)
-  fig_5_2_f1_recovery_lf.png     — Восстановление F1 (LF, Рис. 5.2)
-  fig_5_3_delta_f1_heatmap_lf.png — ΔF1 тепловая карта (Рис. 5.3)
-  fig_5_4_I_score_lf.png         — Метрика I (LF, Рис. 5.4)
-  fig_5_5_asr_before_after.png   — ASR до/после защиты (Backdoor, Рис. 5.5)
-  fig_5_6_f1_before_after_bd.png — F1 до/после защиты (Backdoor, Рис. 5.6)
-  fig_5_7_I_score_bd.png         — Метрика I (Backdoor, Рис. 5.7)
-  fig_5_8_I_heatmap_combined.png — Сводная тепловая карта I (Рис. 5.8)
+mlsec-v3/
+├── src/
+│   ├── preprocessing/
+│   │   └── datasets.py          # Загрузка UNSW-NB15, Adult, SMS Spam, MNIST
+│   ├── models/
+│   │   └── classifiers.py       # Фабрика моделей LR, RF, GB
+│   ├── attacks/
+│   │   ├── lf.py                # Random LF и Targeted LF
+│   │   └── backdoor.py          # Backdoor-атака с ConstantPerturbation
+│   ├── metrics/
+│   │   └── metrics.py           # Accuracy, F1, ASR, интегральная метрика I
+│   └── defenses/
+│       └── defense.py           # DefenseTransformer (трёхуровневый конвейер)
+│
+├── experiments/
+│   ├── baseline.yaml            # Конфигурация базового эксперимента
+│   ├── attack_lf.yaml           # Конфигурация LF-атак
+│   ├── attack_backdoor.yaml     # Конфигурация Backdoor-атаки
+│   └── defense.yaml             # Конфигурация эксперимента с защитой
+│
+├── data/
+│   ├── raw/                     # Исходные данные (SMS Spam кэш, .gitkeep)
+│   └── processed/               # Предобработанные данные (.gitkeep)
+│
+├── results/                     # Выходные CSV (генерируются скриптами)
+│   ├── baseline.csv
+│   ├── lf_results.csv
+│   ├── bd_results.csv
+│   ├── defense_lf_results.csv
+│   ├── defense_bd_results.csv
+│   └── I_score_all.csv
+│
+├── figures/                     # Рисунки глав 3–5 (генерируются regen_figures.py)
+│
+├── baseline.py                  # Запуск базового эксперимента
+├── attack_lf.py                 # Запуск LF-атак
+├── attack_backdoor.py           # Запуск Backdoor-атаки
+├── defense_experiment.py        # Запуск эксперимента с защитой
+├── regen_figures.py             # Перегенерация рисунков
+├── gen_I_score_plots.py         # Графики интегральной метрики
+└── requirements.txt
 ```
 
 ---
 
-## Параметры экспериментов
+## Быстрый старт
 
-| Параметр | Значение |
-|---|---|
-| Алгоритмы | Logistic Regression, Random Forest, Gradient Boosting |
-| Датасеты | UNSW-NB15 (25k), Adult Income (20k), SMS Spam (5.5k), MNIST (8k) |
-| Уровни отравления ε | {1, 5, 10, 15, 20, 25, 30%} |
-| Повторений | 5 (random_state=42), n_jobs=1 |
-| Атаки | Random Label Flipping, Backdoor (ConstantPerturbation) |
-| Профили защиты | `auto`, `lf`, `backdoor` |
-| Окружение | Python 3.12.8, scikit-learn 1.8.0, Linux 6.1, 2 vCPU, 7.8 ГБ RAM |
-
----
-
-## Методика защиты DefenseTransformer
-
-Трёхуровневый конвейер (sklearn-совместимый `TransformerMixin`):
-
-1. **Isolation Forest** — глобальная фильтрация статистических аномалий
-2. **LOF (Local Outlier Factor)** — локальная проверка плотности окружения
-3. **Профильная адаптация** — настройка порогов под тип атаки (`lf` / `backdoor` / `auto`)
-
-**Интегральная метрика защищённости:**
-
-```
-I = 0.4 * (F1_prot / F1_base) + 0.4 * (1 - ASR_prot) - 0.2 * time_ratio
-```
-
-Диапазон: I > 0 означает положительный эффект защиты; I < 0 — гиперкоррекция.
-
----
-
-## Воспроизведение
+### 1. Установка зависимостей
 
 ```bash
-pip install scikit-learn pandas numpy matplotlib seaborn adversarial-robustness-toolbox
+git clone https://github.com/Dnlln/mlsec-v3.git
+cd mlsec-v3
+pip install -r requirements.txt
+```
 
-# 1. Базовые метрики
-python src/baseline.py
+### 2. Воспроизведение экспериментов
 
-# 2. Атаки
-python src/attack_lf.py
-python src/attack_backdoor.py
+Шаги выполняются последовательно — каждый следующий зависит от результатов предыдущего.
 
-# 3. Защита (результаты → results/defense_*_results.csv)
-# запустить эксперимент защиты (см. src/defenses/defense.py)
+```bash
+# Шаг 1 — базовые метрики (≈ 10–20 мин)
+python baseline.py
 
-# 4. Рисунки
-python src/gen_figures_lf.py    # → figures/fig_5_1..5_4, 5_8
-python src/gen_figures_bd.py    # → figures/fig_5_5..5_7
+# Шаг 2 — атаки Label Flipping (≈ 3–5 ч)
+python attack_lf.py
+
+# Шаг 3 — Backdoor-атака (≈ 5–8 ч)
+python attack_backdoor.py
+
+# Шаг 4 — эксперимент с защитой DefenseTransformer (≈ 8–12 ч)
+python defense_experiment.py
+
+# Перегенерация рисунков (после получения CSV)
+python regen_figures.py
+python gen_I_score_plots.py
+```
+
+### 3. Использование DefenseTransformer отдельно
+
+```python
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from src.defenses.defense import DefenseTransformer
+
+pipeline = Pipeline([
+    ("scaler",  StandardScaler()),
+    ("defense", DefenseTransformer(contamination=0.10, threat_profile="auto")),
+    ("clf",     LogisticRegression()),
+])
+
+pipeline.fit(X_train, y_train)
+y_pred = pipeline.predict(X_test)
 ```
 
 ---
 
-## Ключевые результаты
+## Наборы данных
 
-- При ε ∈ [10%; 20%] конвейер восстанавливает F1 до baseline-уровня, ASR (Backdoor) снижается ниже 0.20
-- Специализированный профиль даёт +2–7 п.п. к метрике I относительно `auto`
-- При ε > 25% наблюдается гиперкоррекция (I < 0)
-- time_ratio = 0.3–0.8 для UNSW/Adult; 1.5–2.5 для MNIST/SMS
+| Датасет | Домен | Объём | Признаки | Источник |
+|---------|-------|-------|----------|---------|
+| UNSW-NB15 | Сетевая безопасность | 175 341 → 25 000* | 45 | OpenML did=46301 |
+| Adult | Социально-демографический | 48 842 | 14 | OpenML did=1590 |
+| SMS Spam | Телекоммуникации | 5 574 | 500 (TF-IDF) | UCI ML Repository |
+| MNIST (bin.) | Компьютерное зрение | 70 000 → 8 000* | 784 | OpenML did=554 |
+
+\* стратифицированная подвыборка для ускорения экспериментов
+
+Датасеты загружаются автоматически при первом запуске. SMS Spam кэшируется в `data/raw/sms_spam.csv`.
+
+---
+
+## Вычислительные требования
+
+- **CPU:** четырёхядерный (и выше), GPU не требуется
+- **RAM:** не более 4 ГБ (последовательное выполнение, `n_jobs=1`)
+- **Полный прогон:** 14–20 часов при последовательном выполнении
+- **Python:** 3.11+
+
+---
+
+## Конфигурационные файлы
+
+Каждый эксперимент описан YAML-конфигом в папке `experiments/`. Конфиги содержат полную спецификацию: датасеты, параметры моделей, уровни загрязнения, метрики и путь к выходному файлу.
+
+---
+
+## Параметры воспроизводимости
+
+| Параметр | Значение | Назначение |
+|----------|----------|-----------|
+| `random_state` | 42 | Все стохастические компоненты |
+| `n_jobs` | 1 | Детерминированность на любой платформе |
+| `test_size` | 0.20 | Стратифицированное разбиение 80/20 |
+| `n_repeats` | 5 | Усреднение по повторениям |
+
+---
+
+## Лицензия
+
+Код распространяется в учебных и исследовательских целях.
