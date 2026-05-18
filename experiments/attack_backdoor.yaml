@@ -1,0 +1,55 @@
+# experiments/attack_backdoor.yaml
+# Конфигурация эксперимента: Backdoor-атака (Глава 3, Шаг 3)
+
+experiment: attack_backdoor
+description: >
+  Backdoor-атака с ConstantPerturbation-триггером.
+  7 уровней ε × 5 повторений × 3 модели × 4 датасета = 420 прогонов.
+
+attack_type: Backdoor
+
+trigger:
+  tabular:
+    method: top3_variance_mean_3sigma
+    description: >
+      Top-3 признака по дисперсии; значения = mean(X_train) + 3·std(X_train).
+      Вычисляется по X_train до атаки (data leakage исключён).
+  mnist:
+    method: pixel_patch
+    positions: [[25,26],[25,26]]
+    value: 255
+    description: Пиксели позиций (25–26)×(25–26) = 255 в развёрнутом 784-векторе.
+
+target_class: 1   # аномалия / спам / нечётная цифра
+
+contamination_levels:
+  - 0.01
+  - 0.05
+  - 0.10
+  - 0.15
+  - 0.20
+  - 0.25
+  - 0.30
+
+datasets:
+  - UNSW-NB15
+  - Adult
+  - SMS_Spam
+  - MNIST
+
+models: [LR, RF, GB]
+
+evaluation:
+  n_repeats: 5
+  test_size: 0.20
+  random_state: 42
+  stratified: true
+  metrics: [accuracy, f1_macro, asr]
+
+output:
+  file: results/bd_results.csv
+  columns: [dataset, model, attack_type, epsilon, acc_mean, acc_std,
+            f1_mean, f1_std, asr_mean, asr_std, n_samples, n_features]
+
+run:
+  command: python attack_backdoor.py
