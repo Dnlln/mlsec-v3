@@ -1,0 +1,65 @@
+# experiments/defense.yaml
+# Конфигурация эксперимента: оценка эффективности DefenseTransformer (Глава 5)
+
+experiment: defense
+description: >
+  Факторный эксперимент: 4 датасета × 3 модели × 3 типа атак × 7 уровней ε
+  × 2 профиля × 5 повторений = 2 520 прогонов.
+
+defense:
+  class: DefenseTransformer
+  module: src.defenses.defense
+  params:
+    alpha: 0.5           # вес IF в soft voting
+    voting: soft         # режим согласования скоров
+    lof_n_neighbors: 20
+    if_n_estimators: 100
+
+threat_profiles:
+  auto:
+    description: Универсальный режим — ε_IF = ε_LOF = ε
+    eps_if_factor: 1.0
+    eps_lof_factor: 1.0
+  lf:
+    description: Усиленный LOF для кластеров подмены меток
+    eps_if_factor: 0.8
+    eps_lof_factor: 1.2
+  backdoor:
+    description: Усиленный IF для точечных аномалий (бэкдор-триггер)
+    eps_if_factor: 1.2
+    eps_lof_factor: 0.8
+
+contamination_levels:
+  - 0.01
+  - 0.05
+  - 0.10
+  - 0.15
+  - 0.20
+  - 0.25
+  - 0.30
+
+attack_types: [Random_LF, Targeted_LF, Backdoor]
+datasets: [UNSW-NB15, Adult, SMS_Spam, MNIST]
+models: [LR, RF, GB]
+
+integral_metric:
+  formula: "I = w1*(F1_prot/F1_base) + w2*(1-ASR_prot) - w3*time_ratio"
+  weights: {w1: 0.4, w2: 0.4, w3: 0.2}
+  interpretation:
+    optimal: "I = 1.0 — идеальная защита"
+    positive: "I > 0 — защита эффективна"
+    negative: "I < 0 — гиперкоррекция (over-sanitization)"
+
+evaluation:
+  n_repeats: 5
+  test_size: 0.20
+  random_state: 42
+  stratified: true
+
+output:
+  lf_file: results/defense_lf_results.csv
+  bd_file: results/defense_bd_results.csv
+  iscore_file: results/I_score_all.csv
+
+run:
+  command: python defense_experiment.py
