@@ -1,0 +1,30 @@
+# mlsec-v3 — зависимости (зафиксированы для воспроизводимости)
+# Установка: pip install -r requirements.txt
+
+# Базовые вычисления
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.0
+
+# Машинное обучение
+scikit-learn==1.4.2
+
+# Атаки (Adversarial Robustness Toolbox)
+adversarial-robustness-toolbox==1.17.1
+
+# Трекинг экспериментов
+mlflow==2.12.2
+
+# Версионирование данных
+dvc==3.50.1
+
+# Обработка текста (SMS Spam)
+# входит в scikit-learn (TfidfVectorizer)
+
+# Визуализация
+matplotlib==3.8.4
+seaborn==0.13.2
+
+# Утилиты
+tqdm==4.66.4
+pyyaml==6.0.1
